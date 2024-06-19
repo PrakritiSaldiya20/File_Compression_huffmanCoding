@@ -1,0 +1,197 @@
+#include <fstream>
+#include <vector>
+#include <queue>
+#include <map>
+
+using namespace std;
+
+struct Node {
+    char symbol;
+    int frequency;
+    Node* leftChild = nullptr;
+    Node* rightChild = nullptr;
+
+    Node(char symbol, int frequency) {
+        this->symbol = symbol;
+        this->frequency = frequency;
+    }
+
+    void serialize(ofstream& outFile) {
+        if (leftChild) {
+            outFile.put('1');
+            leftChild->serialize(outFile);
+        } else {
+            outFile.put('0');
+        }
+
+        if (rightChild) {
+            outFile.put('1');
+            rightChild->serialize(outFile);
+        } else {
+            outFile.put('0');
+        }
+
+        outFile.put(symbol);
+    }
+
+    void deserialize(ifstream& inFile) {
+        char bit;
+        inFile.get(bit);
+
+        if (bit == '1') {
+            leftChild = new Node(0, 0);
+            leftChild->deserialize(inFile);
+        }
+
+        inFile.get(bit);
+
+        if (bit == '1') {
+            rightChild = new Node(0, 0);
+            rightChild->deserialize(inFile);
+        }
+
+        inFile.get(symbol);
+    }
+};
+
+struct Comparator {
+    bool operator()(Node* a, Node* b) {
+        return a->frequency > b->frequency;
+    }
+};
+
+void generateHuffmanCodes(Node* root, string code, map<char, string>& huffmanCodes) {
+    if (root->leftChild == nullptr && root->rightChild == nullptr) {
+        huffmanCodes[root->symbol] = code;
+        return;
+    }
+
+    if (root->leftChild != nullptr) {
+        generateHuffmanCodes(root->leftChild, code + "0", huffmanCodes);
+    }
+
+    if (root->rightChild != nullptr) {
+        generateHuffmanCodes(root->rightChild, code + "1", huffmanCodes);
+    }
+}
+
+void encodeImage(string imageFilePath, string compressedImageFilePath, string huffmanTreeFilePath) {
+    // Read the image data
+    vector<unsigned char> imageData;
+    ifstream imageFile(imageFilePath, ios::binary);
+    if (!imageFile.is_open()) {
+        cout << "Error opening image file" << endl;
+        return;
+    }
+
+    imageData.assign((istreambuf_iterator<char>(imageFile)), (istreambuf_iterator<char>()));
+    imageFile.close();
+
+    // Calculate the frequency of each symbol
+    map<unsigned char, int> frequencyTable;
+    for (unsigned char symbol : imageData) {
+        frequencyTable[symbol]++;
+    }
+
+    // Build the Huffman tree
+    priority_queue<Node*, vector<Node*>, Comparator> priorityQueue;
+    for (auto pair : frequencyTable) {
+        priorityQueue.push(new Node(pair.first, pair.second));
+    }
+
+    while (priorityQueue.size() > 1) {
+        Node* leftNode = priorityQueue.top();
+        priorityQueue.pop();
+
+        Node* rightNode = priorityQueue.top();
+        priorityQueue.pop();
+
+        Node* parent = new Node('\0', leftNode->frequency + rightNode->frequency);
+        parent->leftChild = leftNode;
+        parent->rightChild = rightNode;
+
+        priorityQueue.push(parent);
+    }
+
+    Node* huffmanTree = priorityQueue.top();
+
+    // Generate Huffman codes
+    map<char, string> huffmanCodes;
+    generateHuffmanCodes(huffmanTree, "", huffmanCodes);
+
+    // Encode the image data
+    string encodedData;
+    for (unsigned char symbol : imageData) {
+        encodedData += huffmanCodes[symbol];
+    }
+
+    // Save the encoded data to a file with ".huff" extension
+    ofstream compressedImageFile(compressedImageFilePath, ios::binary);
+    compressedImageFile << encodedData;
+    compressedImageFile.close();
+
+    // Save the Huffman tree to a file
+    ofstream huffmanTreeFile(huffmanTreeFilePath, ios::binary);
+    huffmanTree->serialize(huffmanTreeFile);
+    huffmanTreeFile.close();
+
+}
+
+void decodeImage(string compressedImageFilePath, string huffmanTreeFilePath, string decompressedImageFilePath) {
+    ifstream huffmanTreeFile(huffmanTreeFilePath, ios::binary);
+    Node* huffmanTree = new Node(0, 0);
+    huffmanTree->deserialize(huffmanTreeFile);
+    huffmanTreeFile.close();
+
+    // Read the encoded data from the file with ".huff" extension
+    ifstream compressedImageFile(compressedImageFilePath, ios::binary);
+    if (!compressedImageFile.is_open()) {
+        cout << "Error opening compressed image file" << endl;
+        return;
+    }
+
+    string encodedData;
+    compressedImageFile >> encodedData;
+    compressedImageFile.close();
+
+    // Decoding 
+    vector<unsigned char> decodedData;
+    Node* currentNode = huffmanTree;
+    for (char bit : encodedData) {
+        if (bit == '0') {
+            currentNode = currentNode->leftChild;
+        } else {
+            currentNode = currentNode->rightChild;
+        }
+
+        if (currentNode->leftChild == nullptr && currentNode->rightChild == nullptr) {
+            decodedData.push_back(currentNode->symbol);
+            currentNode = huffmanTree; // Reset to the root for the next symbol
+        }
+    }
+
+    // Save the decoded data to a file
+    ofstream decompressedImageFile(decompressedImageFilePath, ios::binary);
+    decompressedImageFile.write(reinterpret_cast<const char*>(&decodedData[0]), decodedData.size());
+    decompressedImageFile.close();
+
+    // Free memory allocated for the Huffman tree
+    delete huffmanTree;
+}
+
+int main() {
+
+    string inputImageFilePath ;
+    cout<<"Enter input image file name:";
+    cin >> inputImageFilePath ;
+    string compressedImageFilePath = "encoded_image.huff"; // Change the extension to ".huff"
+    string huffmanTreeFilePath = "huffman_tree.bin";
+    string decompressedImageFilePath = "decoded_image.png";
+
+    encodeImage(inputImageFilePath, compressedImageFilePath, huffmanTreeFilePath);
+    cout<<"Image encoded successfully"<<endl;
+
+    decodeImage(compressedImageFilePath, huffmanTreeFilePath, decompressedImageFilePath);
+    cout<<"Image decoded successfully"<<endl;
+    return 0;
+}
