@@ -1,0 +1,237 @@
+#include <map>
+#include <string>
+#include <vector>
+#include <fstream>
+#include <queue>
+using namespace std;
+
+struct HuffmanNode {
+    char data;
+    int frequency;
+    HuffmanNode* left;
+    HuffmanNode* right;
+
+    HuffmanNode(char data, int frequency) : data(data), frequency(frequency), left(nullptr), right(nullptr) {}
+};
+
+struct CompareNodes {
+    bool operator()(HuffmanNode* a, HuffmanNode* b) const {
+        return a->frequency > b->frequency;
+    }
+};
+
+void buildHuffmanTree(map<char, int>& frequencies, HuffmanNode*& root) {
+    priority_queue<HuffmanNode*, vector<HuffmanNode*>, CompareNodes> minHeap;
+
+    for (const auto& pair : frequencies) {
+        minHeap.push(new HuffmanNode(pair.first, pair.second));
+    }
+
+    while (minHeap.size() > 1) {
+        HuffmanNode* left = minHeap.top();
+        minHeap.pop();
+
+        HuffmanNode* right = minHeap.top();
+        minHeap.pop();
+
+        HuffmanNode* newNode = new HuffmanNode('$', left->frequency + right->frequency);
+        newNode->left = left;
+        newNode->right = right;
+
+        minHeap.push(newNode);
+    }
+
+    root = minHeap.top();
+}
+
+void buildHuffmanCodes(HuffmanNode* root, const string& code, map<char, string>& huffmanCodes) {
+    if (!root) {
+        return;
+    }
+
+    if (root->data != '$') {
+        huffmanCodes[root->data] = code;
+    }
+
+    buildHuffmanCodes(root->left, code + "0", huffmanCodes);
+    buildHuffmanCodes(root->right, code + "1", huffmanCodes);
+}
+
+void encodeString(const string& inputString) {
+    // Step 1: Calculate character frequencies
+    map<char, int> frequencies;
+    for (char ch : inputString) {
+        frequencies[ch]++;
+    }
+
+    // Step 2: Build Huffman tree and codes
+    HuffmanNode* huffmanTree = nullptr;
+    buildHuffmanTree(frequencies, huffmanTree);
+    map<char, string> huffmanCodes;
+    buildHuffmanCodes(huffmanTree, "", huffmanCodes);
+
+    // Step 3: Encode the input string
+    string encodedBits;
+    for (char ch : inputString) {
+        encodedBits += huffmanCodes[ch];
+    }
+
+    // Display the Huffman codes
+    cout << "Huffman Codes for Characters:" << endl;
+    for (const auto& pair : huffmanCodes) {
+        cout << pair.first << ": " << pair.second << endl;
+    }
+
+    // Display the encoded string
+    cout << "Encoded String: " << encodedBits << endl;
+
+    // Decode and display the decoded text
+    string decodedText;
+    HuffmanNode* currentNode = huffmanTree;
+    for (char bit : encodedBits) {
+        if (bit == '0') {
+            currentNode = currentNode->left;
+        } else if (bit == '1') {
+            currentNode = currentNode->right;
+        }
+
+        if (currentNode->data != '$') {
+            decodedText += currentNode->data;
+            currentNode = huffmanTree;
+        }
+    }
+    cout << "Decoded Text: " << decodedText << endl;
+}
+
+void encodeFile(const string& inputFileName, const string& outputFileName) {
+    ifstream inputFile(inputFileName, ios::in);
+    ofstream outputFile(outputFileName, ios::out | ios::binary);
+
+    if (inputFile && outputFile) {
+        // Step 1: Read input file and calculate character frequencies
+        map<char, int> frequencies;
+        char ch;
+
+        while (inputFile.get(ch)) {
+            frequencies[ch]++;
+        }
+
+        // Step 2: Build Huffman tree and codes
+        HuffmanNode* huffmanTree = nullptr;
+        buildHuffmanTree(frequencies, huffmanTree);
+        map<char, string> huffmanCodes;
+        buildHuffmanCodes(huffmanTree, "", huffmanCodes);
+
+        // Step 3: Encode the input file and write to the output file
+        inputFile.clear();
+        inputFile.seekg(0);
+
+        string encodedBits;
+        while (inputFile.get(ch)) {
+            encodedBits += huffmanCodes[ch];
+        }
+
+        // Write the number of unique characters to the output file for decoding
+        int numUniqueChars = frequencies.size();
+        outputFile.write(reinterpret_cast<const char*>(&numUniqueChars), sizeof(int));
+
+        // Write character-frequency pairs to the output file for decoding
+        for (const auto& pair : frequencies) {
+            outputFile.put(pair.first);
+            outputFile.write(reinterpret_cast<const char*>(&pair.second), sizeof(int));
+        }
+
+        while (!encodedBits.empty()) {
+            unsigned char byte = 0;
+            for (int i = 0; i < 8 && !encodedBits.empty(); i++) {
+                if (encodedBits[0] == '1') {
+                    byte |= (1 << (7 - i));
+                }
+                encodedBits.erase(0, 1);
+            }
+            outputFile.put(byte);
+        }
+
+        inputFile.close();
+        outputFile.close();
+        cout << "File encoded successfully and saved to " << outputFileName << endl;
+    } else {
+        cerr << "Error opening files." << endl;
+    }
+}
+
+void decodeFile(const string& inputFileName, const string& outputFileName) {
+    ifstream inputFile(inputFileName, ios::in | ios::binary);
+    ofstream outputFile(outputFileName, ios::out);
+
+    if (inputFile && outputFile) {
+        // Step 1: Read the number of unique characters
+        int numUniqueChars;
+        inputFile.read(reinterpret_cast<char*>(&numUniqueChars), sizeof(int));
+
+        // Step 2: Read character frequencies
+        map<char, int> frequencies;
+        for (int i = 0; i < numUniqueChars; i++) {
+            char ch;
+            int freq;
+            inputFile.get(ch);
+            inputFile.read(reinterpret_cast<char*>(&freq), sizeof(int));
+            frequencies[ch] = freq;
+        }
+
+        // Step 3: Build Huffman tree
+        HuffmanNode* huffmanTree = nullptr;
+        buildHuffmanTree(frequencies, huffmanTree);
+
+        // Step 4: Decode the input file and write to the output file
+        HuffmanNode* currentNode = huffmanTree;
+        char bit;
+        while (inputFile.get(bit)) {
+            for (int i = 7; i >= 0; i--) {
+                if (bit & (1 << i)) {
+                    currentNode = currentNode->right;
+                } else {
+                    currentNode = currentNode->left;
+                }
+
+                if (currentNode->data != '$') {
+                    outputFile.put(currentNode->data);
+                    currentNode = huffmanTree;
+                }
+            }
+        }
+
+        inputFile.close();
+        outputFile.close();
+        cout << "File decoded successfully and saved to " << outputFileName << endl;
+    } else {
+        cerr << "Error opening files." << endl;
+    }
+}
+
+int main() {
+    int choice;
+    cout << "Choose an option:" << endl;
+    cout << "1. Encode a string" << endl;
+    cout << "2. Encode a file" << endl;
+    cout << "Enter 1 or 2: ";
+    cin >> choice;
+
+    if (choice == 1) {
+        cin.ignore(); // Clear the newline character from the input buffer
+        string inputString;
+        cout << "Enter a string to encode: ";
+        getline(cin, inputString);
+        encodeString(inputString);
+    } else if (choice == 2) {
+        string inputFileName, outputFileName;
+        cout << "Enter the input file name: ";
+        cin >> inputFileName;
+        encodeFile(inputFileName, "encoded.huff");
+        decodeFile("encoded.huff", "decoded.txt");
+    } else {
+        cout << "Invalid choice." << endl;
+    }
+
+    return 0;
+}
